@@ -26,7 +26,7 @@ print(char_vocab(["3"]))
 ##
 
 AUDIO_TRANSFORMS = torchaudio.transforms.MelSpectrogram(
-    sample_rate=SAMPLE_RATE, n_fft=1024, hop_length=256, n_mels=64
+    sample_rate=SAMPLE_RATE, n_fft=1024, hop_length=512, n_mels=64
 )
 ##
 def load_audio(path):
@@ -89,18 +89,6 @@ def apply_transforms(x):
     waveform, transcript = x
     return (AUDIO_TRANSFORMS(waveform), transcript)
 
-def text_to_tensor(x):
-    sos_id =torch.tensor(char_vocab.get_stoi()["<"], dtype=torch.int64)
-    eos_id = torch.tensor(char_vocab.get_stoi()[">"], dtype=torch.int64)
-    text = x[1]
-    tokens = char_vocab([t for t in text])
-    print("****** tokens ******", x[0].shape)
-    if(len(tokens) > MAX_TARGET_LENGTH-2):
-        tokens = tokens[:MAX_TARGET_LENGTH-2]
-    tokens = [sos_id] + tokens + [eos_id]
-    tokens = torch.tensor(tokens, dtype=torch.int64)
-    tokens = torch.nn.functional.pad(tokens, (padding_idx, MAX_TARGET_LENGTH - len(tokens)))
-    return (x[0].squeeze(), tokens)
 
 def get_librispeech_data():
     data = (
@@ -151,7 +139,7 @@ def collate_batch(batch):
         tokens = [sos_id] + tokens + [eos_id]
         tokens = torch.tensor(tokens, dtype=torch.int64)
         tokens = torch.nn.functional.pad(tokens, (padding_idx, MAX_TARGET_LENGTH - len(tokens)))
-        source.append(x.squeeze())
+        source.append(x)
         target.append(tokens)
     print("*********** 1 *******", len(source), len(target))
     return (torch.stack(source), torch.stack(target))

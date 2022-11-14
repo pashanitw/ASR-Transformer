@@ -23,27 +23,32 @@ class Embeddings(nn.Module):
 class SpeechFeatureEmbeddings(nn.Module):
     def __init__(self, hidden_dim = 64, n_mel=64):
         super(SpeechFeatureEmbeddings, self).__init__()
-        self.conv1 = nn.Conv1d(n_mel, hidden_dim, kernel_size=1, bias=False)
-        self.batchnorm1 = nn.BatchNorm1d(hidden_dim)
-        self.relu1 = nn.ReLU()
-        self.conv2 = nn.Conv1d(hidden_dim, hidden_dim,kernel_size=1, bias=False)
-        self.batchnorm2 = nn.BatchNorm1d(hidden_dim)
-        self.relu2 = nn.ReLU()
-        self.conv3 = nn.Conv1d(hidden_dim, hidden_dim, kernel_size=1, bias=False)
-        self.batchnorm3 = nn.BatchNorm1d(hidden_dim)
-        self.relu3 = nn.ReLU()
+        in_channels = 1
+        out_channels = (64, 128)
+        self.conv = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels[0], kernel_size=3, stride=1, padding=1, bias=False),
+                nn.BatchNorm2d(num_features=out_channels[0]),
+                nn.ReLU(),
+                nn.Conv2d(out_channels[0], out_channels[0], kernel_size=3, stride=1, padding=1, bias=False),
+                nn.BatchNorm2d(num_features=out_channels[0]),
+                nn.ReLU(),
+                nn.MaxPool2d(2, stride=2),
+                nn.Conv2d(out_channels[0], out_channels[1], kernel_size=3, stride=1, padding=1, bias=False),
+                nn.BatchNorm2d(num_features=out_channels[1]),
+                nn.ReLU(),
+                nn.Conv2d(out_channels[1], out_channels[1], kernel_size=3, stride=1, padding=1, bias=False),
+                nn.BatchNorm2d(num_features=out_channels[1]),
+                nn.ReLU(),
+                nn.MaxPool2d(2, stride=2),
+            )
     def forward(self, x):
-        print("*********** 1 *****", x.shape)
-        x  = self.conv1(x)
-        x  = self.relu1(x)
+        print("*********** 1 original *****", x.shape)
+        x = self.conv(x)
+        # batch , channel, height, width
+        print("*********** after conv *****", x.shape)
+        x = x.permute(0, 3, 1, 2)
+        x = x.view(x.shape[0], x.shape[1], -1)
         print("*********** 2 *****", x.shape)
-        x  = self.conv2(x)
-        x  = self.relu2(x)
-        print("*********** 3 *****", x.shape)
-        x  = self.conv3(x)
-        x  = self.relu3(x)
-        print("*********** 4 *****", x.shape)
-        x = x.permute(0, 2, 1)
         return x
 ##
 class LayerNorm(nn.Module):
@@ -132,6 +137,7 @@ class Decoder(nn.Module):
     def forward(self, x, memory, src_mask=None, tgt_mask=None):
         for layer in self.layers:
             x = layer(x, memory, src_mask, tgt_mask)
+        print("*********** Decoder *****", x.shape)
         return self.norm(x)
 ##
 ##
@@ -190,8 +196,11 @@ class DecoderLayer(nn.Module):
     def forward(self, x, memory, src_mask, tgt_mask):
         "Follow Figure 1 (right) for connections."
         m = memory
+        print("===decoder layer===", x.shape)
         x = self.norm1(x + self.dropout1(self.self_attn(x, x,x, tgt_mask)))
+        print("===decoder layer===", x.shape)
         x = self.norm2(x + self.dropout2(self.src_attn(x, m, m)))
+        print("===decoder layer===", x.shape)
         return self.norm3(x + self.dropout3(self.feed_forward(x)))
 ##
 class Generator(nn.Module):
@@ -287,5 +296,8 @@ def make_model(tgt_vocab, N=2, d_model=512, h=8, dropout=0.1, target_max_len=200
         if p.dim() > 1:
             nn.init.xavier_uniform_(p)
     return model
+##
+
+
 ##
 

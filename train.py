@@ -15,7 +15,7 @@ for batch_idx, (mel_grams, target) in enumerate(train_loader):
     labels = target.to(device)
     print("images shape", images.shape)
     print("labels shape", labels.shape)
-    # out = asr_model(images)
+    out = asr_model(mel_grams, target, None, None,)
     # print(out.shape)
     # print(out)
     break
