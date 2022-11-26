@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader, random_split
 ##
 ROOT = './LJSpeech-1.1'
 AUDIO_WAV_PATH = "./LJSpeech-1.1/wavs"
-SAMPLE_RATE = 22050
+SAMPLE_RATE = 16000
 NUMBER_OF_SAMPLES = 10*SAMPLE_RATE
 MAX_TARGET_LENGTH = 200
 ##
@@ -26,15 +26,15 @@ print(char_vocab(["3"]))
 ##
 
 AUDIO_TRANSFORMS = torchaudio.transforms.MelSpectrogram(
-    sample_rate=SAMPLE_RATE, n_fft=1024, hop_length=512, n_mels=64
+    sample_rate=SAMPLE_RATE, n_fft=400, hop_length=160, win_length=400, n_mels=80
 )
 ##
-def load_audio(path):
-    waveform, _ = torchaudio.load(path)
-    waveform = waveform.mean(0)
-    waveform = waveform[:NUMBER_OF_SAMPLES]
-    waveform = waveform / waveform.abs().max()
-    return waveform
+# def load_audio(path):
+#     waveform, _ = torchaudio.load(path)
+#     waveform = waveform.mean(0)
+#     waveform = waveform[:NUMBER_OF_SAMPLES]
+#     waveform = waveform / waveform.abs().max()
+#     return waveform
 ##
 def load_text(path):
     with open(path, "r") as f:
@@ -83,28 +83,18 @@ def right_pad_waveform(x):
         waveform = torch.nn.functional.pad(
             waveform, (padding_idx, NUMBER_OF_SAMPLES - waveform.shape[1])
         )
-    return (waveform, transcript)
+    return (waveform.squeeze(), transcript)
 
 def apply_transforms(x):
     waveform, transcript = x
     return (AUDIO_TRANSFORMS(waveform), transcript)
 
-
-def get_librispeech_data():
-    data = (
-        dp.iter.LoadFilesFromDisk([AUDIO_WAV_PATH])
-        .filter(filter_csv)
-        .map(load_text)
-        .map(text_split_fn)
-        .map(load_librispeech_item)
-        .map(resample_waveform)
-        .map(mix_down)
-        .map(cut_waveform)
-        .map(right_pad_waveform)
-        .map(apply_transforms)
-        .map(text_to_tensor)
-    )
-    return data
+def normalize(x):
+    mel_spectogram, transcript = x
+    return (torch.log(mel_spectogram).clamp_(min=1e-9, max=1e9), transcript)
+##
+def build_dataloader(path):
+    dp = build_datapipes(path)
 ##
 def build_datapipes(path):
     new_dp = dp.iter.FileLister([path])\
@@ -122,7 +112,8 @@ def build_datapipes(path):
             .map(mix_down) \
             .map(cut_waveform) \
             .map(right_pad_waveform) \
-            .map(apply_transforms)
+            .map(apply_transforms) \
+            .map(normalize)
 
 ##
 def collate_batch(batch):
@@ -152,7 +143,6 @@ def create_data_loaders():
 
     train_size = int(0.8 * len(data_iter))
     val_size = len(data_iter) - train_size
-    print("************", train_size, val_size)
     train_dataset, val_dataset = random_split(data_iter, [train_size, val_size])
     train_loader = DataLoader(
         train_dataset,
@@ -169,4 +159,34 @@ def create_data_loaders():
 
     return train_loader, val_loader
 ##
+##
+def subsequent_mask(size):
+    "Mask out subsequent positions."
+    attn_shape = (1, size, size)
+    subsequent_mask = torch.triu(torch.ones(attn_shape), diagonal=1).type(
+        torch.uint8
+    )
+    return subsequent_mask == 0
+##
+class Batch:
+    def __init__(self, src, target=None, pad = 0): # pad = 2 is the index of the pad that is blank token
+        self.src = src
+        self.src_mask = (src != pad).unsqueeze(-2)
+        if target is not None:
+            self.target = target[:, :-1]
+            self.target_y = target[:, 1:]
+            self.target_mask = self.make_std_mask(self.target, pad)
+            self.ntokens = (self.target_y != pad).data.sum()
 
+    @staticmethod
+    def make_std_mask(tgt, pad):
+        tgt_mask = (tgt != pad).unsqueeze(-2)
+        tgt_mask = tgt_mask & subsequent_mask(tgt.size(-1)).type_as(tgt_mask.data)
+        return tgt_mask
+##
+
+data_iter = build_datapipes(ROOT)
+for i in data_iter:
+    print(i[0].shape)
+    break
+##

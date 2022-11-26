@@ -6,6 +6,13 @@ import math
 from torch.nn.functional import log_softmax
 import copy
 ##
+class Conv1d(nn.Conv1d):
+    def _conv_forward(self, x, weight, bias):
+        return super()._conv_forward(
+            x, weight.to(x.dtype), None if bias is None else bias.to(x.dtype)
+        )
+
+##
 def clones(module, N):
     "Produce N identical layers."
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
@@ -175,6 +182,7 @@ class EncoderLayer(nn.Module):
         print("===encoder layer===", x.shape)
         out = self.feed_forward(x)
         out = self.dropout2(out)
+        print("===encoder layer===", x.shape)
         x = self.norm1(out + x)
         print("===encoder layer===", x.shape)
         return x
@@ -211,7 +219,8 @@ class Generator(nn.Module):
         self.proj = nn.Linear(d_model, vocab)
 
     def forward(self, x):
-        return log_softmax(self.proj(x), dim=-1)
+        #return log_softmax(self.proj(x), dim=-1)
+        return self.proj(x)
 ##
 class EncodeDecoder(nn.Module):
     """
@@ -225,7 +234,7 @@ class EncodeDecoder(nn.Module):
         self.decoder = decoder
         self.src_embed = src_embed
         self.tgt_embed = tgt_embed
-        self.generator = generator,
+        self.generator = generator
 
     def forward(self, src, tgt, src_mask, tgt_mask):
         "Take in and process masked src and target sequences."
@@ -275,17 +284,40 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:, : x.size(1)].requires_grad_(False)
         return self.dropout(x)
 ##
-def make_model(tgt_vocab, N=2, d_model=512, h=8, dropout=0.1, target_max_len=200):
+
+class AudioEncoder(nn.Module):
+    def __init__(self, n_mels, n_state):
+        super().__init__()
+        self.conv1 = Conv1d(n_mels, n_state, kernel_size=3, padding=1)
+        self.conv2 = Conv1d(n_state, n_state, kernel_size=3, padding=1)
+        self.conv3 = Conv1d(n_state, n_state, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        print("===audio encoder===", x.shape)
+        x = F.gelu(self.conv1(x))
+        print("===audio encoder===", x.shape)
+        x = F.gelu(self.conv2(x))
+        print("===audio encoder===", x.shape)
+        x = F.gelu(self.conv3(x))
+        print("===audio encoder===", x.shape)
+        # bringing the time dimension to the front
+        x = x.permute(0, 2, 1)
+        return x
+
+
+
+
+def make_model(tgt_vocab, N=2, n_mels=80, d_model=512, h=8, dropout=0.1, target_max_len=200):
     "Helper: Construct a model from hyperparameters."
     c = copy.deepcopy
     attn = MultiHeadedAttention(h, d_model)
-    ff = PositionwiseFeedForward(d_model, 4*d_model, dropout)
+    ff = PositionwiseFeedForward(d_model, 2*d_model, dropout)
     position = PositionalEncoding(d_model, dropout)
-    spatial_encoder = SpeechFeatureEmbeddings()
+    audio_encoder = AudioEncoder(n_mels, d_model)
     model = EncodeDecoder(
         Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
         Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N),
-        spatial_encoder,
+        nn.Sequential(audio_encoder, c(position)),
         nn.Sequential(Embeddings(d_model, len(tgt_vocab)), c(position)),
         Generator(d_model, len(tgt_vocab)),
     )
@@ -296,6 +328,9 @@ def make_model(tgt_vocab, N=2, d_model=512, h=8, dropout=0.1, target_max_len=200
         if p.dim() > 1:
             nn.init.xavier_uniform_(p)
     return model
+##
+
+
 ##
 
 
