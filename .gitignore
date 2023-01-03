@@ -1,0 +1,7 @@
+.idea
+LJSpeech-1.1
+__pycache__
+.venv
+.Ds_Store
+dataset.pkl
+**.pt
